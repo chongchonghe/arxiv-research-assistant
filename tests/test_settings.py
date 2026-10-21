@@ -458,3 +458,46 @@ def test_load_config_both_override_sections_can_coexist(tmp_path: Path) -> None:
     assert config.summary_llm.model == "gpt-4-turbo"
     assert config.ranking_llm.provider == "copilot"
     assert config.summary_llm.provider == "copilot"
+
+
+def test_load_config_accepts_decisions_mode_for_ranking(tmp_path: Path) -> None:
+    config_path = tmp_path / "settings.toml"
+    config_path.write_text(
+        f"{DEFAULT_HEADINGS}\n"
+        "[llm]\n"
+        "mode = 'cli'\n"
+        "provider = 'claude'\n"
+        "\n"
+        "[llm-ranking]\n"
+        "mode = 'decisions'\n"
+        "provider = 'openai'\n"
+        "model = 'gpt-6-luna'\n"
+        "api_key_env = 'OPENAI_API_KEY'\n"
+        "env_file = 'user_preferences/.env'\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.ranking_llm.mode == "decisions"
+    provider_config = config.ranking_llm.provider_config()
+    assert provider_config["model"] == "gpt-6-luna"
+    assert provider_config["api_key_env"] == "OPENAI_API_KEY"
+    assert provider_config["env_file"] == str(tmp_path / "user_preferences" / ".env")
+    assert config.summary_llm.mode == "cli"
+
+
+@pytest.mark.parametrize(
+    "llm_sections",
+    [
+        "[llm]\nmode = 'decisions'\nprovider = 'openai'\n",
+        "[llm]\nmode = 'cli'\nprovider = 'claude'\n\n[llm-summary]\nmode = 'decisions'\nprovider = 'openai'\n",
+    ],
+    ids=["llm", "llm-summary"],
+)
+def test_load_config_rejects_decisions_mode_for_summaries(tmp_path: Path, llm_sections: str) -> None:
+    config_path = tmp_path / "settings.toml"
+    config_path.write_text(f"{DEFAULT_HEADINGS}\n{llm_sections}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cannot summarise papers"):
+        load_config(config_path)

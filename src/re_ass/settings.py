@@ -55,7 +55,7 @@ class LlmConfig:
             config["max_prompt_chars"] = self.max_prompt_chars
         if self.mode == "cli" and self.effort:
             config["effort"] = self.effort
-        if self.provider == "openai-compatible":
+        if self.provider == "openai-compatible" or self.mode == "decisions":
             if self.base_url:
                 config["base_url"] = self.base_url
             if self.api_key_env:
@@ -367,6 +367,11 @@ def load_config(config_path: Path | None = None, project_root: Path | None = Non
     llm = _parse_llm_config(llm_data, "llm", root)
     ranking_llm = _parse_llm_config({**llm_data, **ranking_raw}, "llm-ranking", root) if ranking_raw else llm
     summary_llm = _parse_llm_config({**llm_data, **summary_raw}, "llm-summary", root) if summary_raw else llm
+    if summary_llm.mode == "decisions":
+        raise ValueError(
+            'LLM mode "decisions" returns scores, not text, so it cannot summarise papers. '
+            "Set it only in [llm-ranking] and keep a text-generating mode for [llm] or [llm-summary]."
+        )
 
     return AppConfig(
         output_root=output_root,
