@@ -501,3 +501,71 @@ def test_load_config_rejects_decisions_mode_for_summaries(tmp_path: Path, llm_se
 
     with pytest.raises(ValueError, match="cannot summarise papers"):
         load_config(config_path)
+
+
+def _ranking_settings(tmp_path: Path, ranking_section: str, arxiv_section: str = "") -> Path:
+    config_path = tmp_path / "settings.toml"
+    config_path.write_text(
+        f"{DEFAULT_HEADINGS}\n"
+        f"{arxiv_section}"
+        "[llm]\n"
+        "mode = 'cli'\n"
+        "provider = 'claude'\n"
+        "\n"
+        f"{ranking_section}",
+        encoding="utf-8",
+    )
+    return config_path
+
+
+def test_decisions_mode_uses_calibrated_default_thresholds(tmp_path: Path) -> None:
+    from re_ass.settings import DECISIONS_DEFAULT_THRESHOLDS
+
+    config = load_config(
+        _ranking_settings(tmp_path, "[llm-ranking]\nmode = 'decisions'\nprovider = 'openai'\n")
+    )
+
+    assert (config.min_summarize_score, config.min_selection_score) == DECISIONS_DEFAULT_THRESHOLDS
+
+
+def test_llm_ranking_thresholds_override_decisions_defaults(tmp_path: Path) -> None:
+    config = load_config(
+        _ranking_settings(
+            tmp_path,
+            "[llm-ranking]\nmode = 'decisions'\nprovider = 'openai'\n"
+            "min_summarize_score = 80\nmin_selection_score = 40\n",
+        )
+    )
+
+    assert (config.min_summarize_score, config.min_selection_score) == (80.0, 40.0)
+
+
+def test_text_ranking_keeps_arxiv_thresholds(tmp_path: Path) -> None:
+    config = load_config(
+        _ranking_settings(
+            tmp_path,
+            "[llm-ranking]\nmodel = 'small'\n",
+            arxiv_section="[arxiv]\nmin_summarize_score = 85\nmin_selection_score = 65\n\n",
+        )
+    )
+
+    assert (config.min_summarize_score, config.min_selection_score) == (85.0, 65.0)
+
+
+def test_llm_ranking_thresholds_are_rejected_outside_decisions_mode(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match=r"applies only to mode = \"decisions\""):
+        load_config(_ranking_settings(tmp_path, "[llm-ranking]\nmodel = 'small'\nmin_selection_score = 60\n"))
+
+
+@pytest.mark.parametrize(
+    "thresholds",
+    [
+        ("min_selection_score = 'high'\n", "must be a number"),
+        ("min_selection_score = 120\n", "from 0 to 100"),
+        ("min_summarize_score = 50\nmin_selection_score = 60\n", "greater than or equal"),
+    ],
+)
+def test_invalid_decisions_thresholds_are_rejected(tmp_path: Path, thresholds: tuple[str, str]) -> None:
+    lines, message = thresholds
+    with pytest.raises(ValueError, match=message):
+        load_config(_ranking_settings(tmp_path, f"[llm-ranking]\nmode = 'decisions'\nprovider = 'openai'\n{lines}"))
